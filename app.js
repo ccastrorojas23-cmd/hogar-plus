@@ -18,8 +18,7 @@ const estado = {
   data: {
     gastos: [], ingresos: [], ahorros: [],
     productos: [], menus: [],
-    catGasto: [], catAhorro: [], catMercado: [],
-    gastosTodos: [], catGastoTodos: []
+    catGasto: [], catAhorro: [], catMercado: []
   }
 };
 
@@ -37,7 +36,7 @@ const PALETA = [
 // UTILIDADES
 const $ = id => document.getElementById(id);
 const fmt = n => '$' + Math.round(Number(n)||0).toLocaleString('es-CO');
-const hoy = () => new Date().toISOString().split('T')[0];
+const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const mesActual = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
 const mesDeFecha = f => f.substring(0,7);
 const formatMes = mes => {
@@ -171,7 +170,7 @@ function logout() {
 // CARGA DE DATOS
 async function cargarDatos() {
   const uid = estado.usuario.id;
-  const [g, i, a, p, m, cg, ca, cm, gAll, cgAll] = await Promise.all([
+  const [g, i, a, p, m, cg, ca, cm] = await Promise.all([
     sb.from('gastos').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
     sb.from('ingresos').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
     sb.from('ahorros').select('*').eq('usuario_id', uid).order('fecha', {ascending:false}),
@@ -179,11 +178,7 @@ async function cargarDatos() {
     sb.from('menus').select('*').order('fecha', {ascending:true}),
     sb.from('categorias_gasto').select('*').eq('usuario_id', uid),
     sb.from('categorias_ahorro').select('*').eq('usuario_id', uid),
-    sb.from('categorias_mercado').select('*'),
-    // Para Mercado compartido: traer TODOS los gastos de TODOS los usuarios
-    sb.from('gastos').select('*'),
-    // Y TODAS las categorías de gasto de TODOS los usuarios
-    sb.from('categorias_gasto').select('*')
+    sb.from('categorias_mercado').select('*')
   ]);
   estado.data.gastos = g.data || [];
   estado.data.ingresos = i.data || [];
@@ -193,9 +188,6 @@ async function cargarDatos() {
   estado.data.catGasto = cg.data || [];
   estado.data.catAhorro = ca.data || [];
   estado.data.catMercado = cm.data || [];
-  // Datos compartidos para Mercado
-  estado.data.gastosTodos = gAll.data || [];
-  estado.data.catGastoTodos = cgAll.data || [];
 }
 
 // NAVEGACIÓN
@@ -354,7 +346,7 @@ function renderTabAgenda() {
       <div class="mini-cards">
         ${principales.length === 0 ? '<div style="grid-column:span 2;color:#5A8AC0;font-size:12px;text-align:center;padding:10px">Sin ingresos registrados</div>' : ''}
         ${principales.map(i => `
-          <div class="mini-card" onclick="editarIngreso(${i.id})" oncontextmenu="event.preventDefault();ctxIngreso(event,${i.id})" style="cursor:pointer">
+          <div class="mini-card">
             <p>${i.persona || 'Ingreso'}</p>
             <p>${fmt(i.valor)}</p>
           </div>
@@ -439,6 +431,11 @@ function abrirFormGasto(id) {
       <p class="modal-titulo">${editando ? 'Editar gasto' : 'Nuevo gasto'}</p>
       <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
     </div>
+    <div class="modal-actions" style="margin-bottom:14px">
+      ${editando ? `<button class="btn-delete" onclick="eliminarGasto(${id})">Eliminar</button>` : ''}
+      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn-save" onclick="guardarGasto(${id||'null'})">${editando?'Guardar':'Crear'}</button>
+    </div>
     <label>CONCEPTO</label>
     <input id="g-concepto" type="text" value="${editando?editando.concepto.replace(/"/g,'&quot;'):''}" placeholder="Ej: Arriendo">
     <label>VALOR</label>
@@ -450,26 +447,44 @@ function abrirFormGasto(id) {
       <option value="">Sin categoría</option>
       ${cats.map(c => `<option value="${c.id}" ${editando&&editando.categoria_id===c.id?'selected':''}>${c.nombre}${c.es_ahorro?' (ahorro)':''}${c.es_mercado?' (mercado)':''}</option>`).join('')}
     </select>
-    <div class="modal-actions">
-      ${editando ? `<button class="btn-delete" onclick="eliminarGasto(${id})">Eliminar</button>` : ''}
-      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn-save" onclick="guardarGasto(${id||'null'})">${editando?'Guardar':'Crear'}</button>
+    <label>¿SE REPITE VARIOS MESES?</label>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#0C2E54;width:auto;margin:0">
+        <input type="checkbox" id="g-recurrente" style="width:auto;margin:0" ${editando&&editando.meses_recurrencia>1?'checked':''} onchange="toggleRecurrente()">
+        Gasto recurrente
+      </label>
+    </div>
+    <div id="g-recurrente-panel" class="${editando&&editando.meses_recurrencia>1?'':'hidden'}" style="background:#DCEAF8;border-radius:8px;padding:10px;margin-bottom:6px">
+      <label style="font-size:11px;color:#1E4A7A;margin-bottom:4px;display:block">REPETIR DURANTE (meses, incluyendo este)</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input id="g-meses" type="number" inputmode="numeric" min="2" max="24" value="${editando&&editando.meses_recurrencia>1?editando.meses_recurrencia:2}" placeholder="2" style="width:80px">
+        <span style="font-size:12px;color:#1E4A7A">meses en total</span>
+      </div>
+      <p style="font-size:10px;color:#5A8AC0;margin-top:6px">⚡ Se creará una copia en cada mes siguiente automáticamente</p>
     </div>
   `);
 }
 function editarGasto(id) { abrirFormGasto(id); }
+
+function toggleRecurrente() {
+  const panel = $('g-recurrente-panel');
+  if(panel) panel.classList.toggle('hidden', !$('g-recurrente').checked);
+}
 
 async function guardarGasto(id) {
   const concepto = $('g-concepto').value.trim();
   const valor = Number($('g-valor').value) || 0;
   const fecha = $('g-fecha').value;
   const cat_id = $('g-categoria').value || null;
+  const esRecurrente = $('g-recurrente') && $('g-recurrente').checked;
+  const mesesRec = esRecurrente ? (parseInt($('g-meses').value) || 2) : 1;
   if(!concepto || valor <= 0 || !fecha) { toast('Completa todos los campos'); return; }
   const data = {
     usuario_id: estado.usuario.id,
     concepto, valor, fecha,
     categoria_id: cat_id ? Number(cat_id) : null,
-    mes: mesDeFecha(fecha)
+    mes: mesDeFecha(fecha),
+    meses_recurrencia: mesesRec
   };
   if(id) {
     await sb.from('gastos').update(data).eq('id', id);
@@ -486,11 +501,31 @@ async function guardarGasto(id) {
         mes: mesDeFecha(fecha)
       });
     }
+    // Crear copias para los meses siguientes si es recurrente
+    if(esRecurrente && mesesRec > 1) {
+      const [y, m, d] = fecha.split('-').map(Number);
+      const inserts = [];
+      for(let i = 1; i < mesesRec; i++) {
+        const fechaProx = new Date(y, m - 1 + i, d);
+        const fechaStr = `${fechaProx.getFullYear()}-${String(fechaProx.getMonth()+1).padStart(2,'0')}-${String(fechaProx.getDate()).padStart(2,'0')}`;
+        inserts.push({
+          usuario_id: estado.usuario.id,
+          concepto, valor,
+          fecha: fechaStr,
+          categoria_id: cat_id ? Number(cat_id) : null,
+          mes: mesDeFecha(fechaStr),
+          meses_recurrencia: 1,
+          pagado: false
+        });
+      }
+      if(inserts.length) await sb.from('gastos').insert(inserts);
+    }
   }
   cerrarModal();
   await cargarDatos();
   renderVista();
-  toast(id ? 'Gasto actualizado' : 'Gasto creado');
+  const msg = id ? 'Gasto actualizado' : (esRecurrente && mesesRec > 1 ? `Gasto creado · ${mesesRec} meses programados` : 'Gasto creado');
+  toast(msg);
 }
 
 async function eliminarGasto(id) {
@@ -532,13 +567,6 @@ function abrirFormIngreso(id) {
   `);
 }
 function editarIngreso(id) { abrirFormIngreso(id); }
-
-function ctxIngreso(e, id) {
-  mostrarCtxMenu(e.clientX, e.clientY, [
-    { label: 'Editar', action: () => editarIngreso(id) },
-    { label: 'Eliminar', peligro: true, action: () => eliminarIngreso(id) }
-  ]);
-}
 
 async function guardarIngreso(id) {
   const tipo = $('i-tipo').value;
@@ -742,7 +770,7 @@ function renderTabAhorro() {
       <p class="card-numero ${saldo<0?'negativo':''}">${fmt(saldo)}</p>
       <div class="mini-cards">
         ${principales.length === 0 ? '<div style="grid-column:span 2;color:#5A8AC0;font-size:12px;text-align:center;padding:10px">Sin ingresos</div>' :
-          principales.slice(0,4).map(i => `<div class="mini-card" onclick="editarIngreso(${i.id})" oncontextmenu="event.preventDefault();ctxIngreso(event,${i.id})" style="cursor:pointer"><p>${i.persona || 'Ingreso'}</p><p>${fmt(i.valor)}</p></div>`).join('')}
+          principales.slice(0,4).map(i => `<div class="mini-card"><p>${i.persona || 'Ingreso'}</p><p>${fmt(i.valor)}</p></div>`).join('')}
       </div>
     </div>
 
@@ -922,15 +950,12 @@ function renderDonaAhorroPorLugar() {
 // VISTA MERCADO
 // ============================================
 function renderMercado() {
-  // MERCADO COMPARTIDO: sumar presupuestos de TODOS los usuarios
-  // Categorías es_mercado de cualquier usuario
-  const catsMercadoTodos = estado.data.catGastoTodos.filter(c => c.es_mercado);
-  const idsMercadoTodos = catsMercadoTodos.map(c => c.id);
-  // Filtrar gastos del mes seleccionado de TODOS los usuarios con categoría mercado
-  const filtradosTodos = estado.mes === 'acumulado' 
-    ? estado.data.gastosTodos 
-    : estado.data.gastosTodos.filter(g => g.mes === estado.mes);
-  const gastosMercado = filtradosTodos.filter(g => idsMercadoTodos.includes(g.categoria_id));
+  // Cargar TODOS los gastos con categoría es_mercado de TODOS los usuarios para el saldo
+  // Pero como gastos son privados por usuario, sumamos los del usuario actual
+  // Saldo = suma de gastos con categoria.es_mercado del mes seleccionado
+  const catsMercado = estado.data.catGasto.filter(c => c.es_mercado);
+  const idsMercado = catsMercado.map(c => c.id);
+  const gastosMercado = filtrarPorMes(estado.data.gastos).filter(g => idsMercado.includes(g.categoria_id));
   const presupuestado = gastosMercado.reduce((s,g) => s + Number(g.valor), 0);
 
   const productos = filtrarPorMes(estado.data.productos);
@@ -956,20 +981,31 @@ function renderMercado() {
   } else {
     fechasOrdenadas.forEach(f => {
       const totalDia = porDia[f].reduce((s,p) => s + Number(p.valor), 0);
-      tablaHTML += `<div class="dia-header"><span>${formatFechaLarga(f)}</span><span>${fmt(totalDia)}</span></div>`;
-      porDia[f].forEach(p => {
-        const cat = estado.data.catMercado.find(c => c.id === p.categoria_id);
-        const color = cat ? parseColor(cat.color) : null;
-        tablaHTML += `
-          <div class="tabla-row producto" oncontextmenu="event.preventDefault();ctxProducto(event,${p.id})" onclick="editarProducto(${p.id})">
-            <div>
-              <p class="concepto">${p.nombre}</p>
-              ${cat ? `<span class="cat-pill" style="background:${color.bg};color:${color.fg};border-color:${color.stroke}">${cat.nombre}</span>` : ''}
-            </div>
-            <p class="valor">${fmt(p.valor)}</p>
-          </div>
-        `;
-      });
+      const diaId = `dia-det-${f.replace(/-/g,'')}`;
+      tablaHTML += `
+        <div class="dia-header" onclick="toggleDiaMercado('${diaId}')" style="cursor:pointer">
+          <span>${formatFechaLarga(f)}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span>${fmt(totalDia)}</span>
+            <span id="ico-${diaId}" style="font-size:10px;color:#5A8AC0">▲</span>
+          </span>
+        </div>
+        <div id="${diaId}">
+          ${porDia[f].map(p => {
+            const cat = estado.data.catMercado.find(c => c.id === p.categoria_id);
+            const color = cat ? parseColor(cat.color) : null;
+            return `
+              <div class="tabla-row producto" oncontextmenu="event.preventDefault();ctxProducto(event,${p.id})" onclick="editarProducto(${p.id})">
+                <div>
+                  <p class="concepto">${p.nombre}</p>
+                  ${cat ? `<span class="cat-pill" style="background:${color.bg};color:${color.fg};border-color:${color.stroke}">${cat.nombre}</span>` : ''}
+                </div>
+                <p class="valor">${fmt(p.valor)}</p>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
     });
   }
 
@@ -1057,6 +1093,14 @@ function toggleMesAcumulado(mes) {
   if(div) div.classList.toggle('hidden');
 }
 
+function toggleDiaMercado(diaId) {
+  const div = $(diaId);
+  const ico = $(`ico-${diaId}`);
+  if(!div) return;
+  const oculto = div.classList.toggle('hidden');
+  if(ico) ico.textContent = oculto ? '▼' : '▲';
+}
+
 function ctxProducto(e, id) {
   mostrarCtxMenu(e.clientX, e.clientY, [
     { label: 'Editar', action: () => editarProducto(id) },
@@ -1071,6 +1115,11 @@ function abrirFormProducto(id) {
       <p class="modal-titulo">${editando ? 'Editar producto' : 'Nuevo producto'}</p>
       <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
     </div>
+    <div class="modal-actions" style="margin-bottom:14px">
+      ${editando ? `<button class="btn-delete" onclick="eliminarProducto(${id})">Eliminar</button>` : ''}
+      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
+      <button class="btn-save" onclick="guardarProducto(${id||'null'})">${editando?'Guardar':'Crear'}</button>
+    </div>
     <label>NOMBRE</label>
     <input id="p-nombre" type="text" value="${editando?editando.nombre.replace(/"/g,'&quot;'):''}" placeholder="Ej: Pollo entero">
     <label>VALOR</label>
@@ -1081,11 +1130,6 @@ function abrirFormProducto(id) {
       ${estado.data.catMercado.map(c => `<option value="${c.id}" ${editando&&editando.categoria_id===c.id?'selected':''}>${c.nombre}</option>`).join('')}
     </select>
     ${editando ? `<label>FECHA</label><input id="p-fecha" type="date" value="${editando.fecha}">` : ''}
-    <div class="modal-actions">
-      ${editando ? `<button class="btn-delete" onclick="eliminarProducto(${id})">Eliminar</button>` : ''}
-      <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn-save" onclick="guardarProducto(${id||'null'})">${editando?'Guardar':'Crear'}</button>
-    </div>
   `);
 }
 function editarProducto(id) { abrirFormProducto(id); }
@@ -1130,10 +1174,29 @@ function renderMenus() {
   }
 
   const menus = filtrarPorMes(estado.data.menus);
+  const todosLosFavoritos = estado.data.menus.filter(m => m.favorita);
 
   $('vista-contenedor').innerHTML = `
     ${renderHeader('Menús')}
     <button class="btn-primary" style="margin-bottom:14px" onclick="abrirFormMenu()">+ Crear comida</button>
+    ${todosLosFavoritos.length > 0 ? `
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <p class="card-titulo" style="margin:0">⭐ MIS FAVORITAS</p>
+          <span style="font-size:11px;color:#5A8AC0">${todosLosFavoritos.length} recetas</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${todosLosFavoritos.map(f => `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#FFFBF2;border:1px solid #F0D4A0;border-radius:8px;cursor:pointer" onclick="abrirFormMenu(${f.id})">
+              <span style="font-size:14px">${f.tipo==='desayuno'?'🌅':f.tipo==='almuerzo'?'🌞':'🌙'}</span>
+              <span style="flex:1;font-size:13px;color:#0C2E54;font-weight:500">${f.nombre}</span>
+              ${f.video_url ? '<span style="font-size:10px;color:#534AB7">▶</span>' : ''}
+              <span style="font-size:10px;color:#854F0B;text-transform:uppercase;background:#FAEEDA;padding:2px 6px;border-radius:999px">${f.tipo}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
     <div class="card">
       ${renderCalendario(menus)}
     </div>
@@ -1250,11 +1313,28 @@ function ctxMenu(e, id) {
 function abrirFormMenu(id, fechaPredef) {
   const editando = id ? estado.data.menus.find(m => m.id === id) : null;
   const fecha = editando ? editando.fecha : (fechaPredef || estado.diaSeleccionadoMenu || hoy());
+  const favoritos = estado.data.menus.filter(m => m.favorita);
+  const tienesFavs = favoritos.length > 0;
+
   abrirModal(`
     <div class="modal-header">
       <p class="modal-titulo">${editando ? 'Editar comida' : 'Nueva comida'}</p>
       <button class="modal-cerrar" onclick="cerrarModal()">✕</button>
     </div>
+    ${!editando && tienesFavs ? `
+      <div style="background:#FAEEDA;border-radius:10px;padding:10px;margin-bottom:14px">
+        <p style="font-size:11px;color:#854F0B;font-weight:500;margin-bottom:8px">⭐ USAR UN FAVORITO</p>
+        <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+          ${favoritos.map(f => `
+            <button onclick="usarFavorito(${f.id})" style="background:white;border:1px solid #F0D4A0;border-radius:8px;padding:8px 10px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px">${f.tipo==='desayuno'?'🌅':f.tipo==='almuerzo'?'🌞':'🌙'}</span>
+              <span style="font-size:13px;color:#0C2E54;font-weight:500;flex:1">${f.nombre}</span>
+              <span style="font-size:10px;color:#854F0B;text-transform:uppercase">${f.tipo}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
     <label>TIPO DE COMIDA</label>
     <select id="m-tipo">
       <option value="desayuno" ${editando&&editando.tipo==='desayuno'?'selected':''}>🌅 Desayuno</option>
@@ -1285,6 +1365,20 @@ function abrirFormMenu(id, fechaPredef) {
   // Vista previa de video al pegar URL
   $('m-video').addEventListener('input', e => previewVideo(e.target.value));
   if(editando && editando.video_url) previewVideo(editando.video_url);
+}
+
+function usarFavorito(id) {
+  const fav = estado.data.menus.find(m => m.id === id);
+  if(!fav) return;
+  const tipoSel = $('m-tipo');
+  const nombreSel = $('m-nombre');
+  const descSel = $('m-desc');
+  const videoSel = $('m-video');
+  if(tipoSel) tipoSel.value = fav.tipo;
+  if(nombreSel) nombreSel.value = fav.nombre;
+  if(descSel) descSel.value = fav.descripcion || '';
+  if(videoSel) { videoSel.value = fav.video_url || ''; previewVideo(fav.video_url || ''); }
+  toast(`"${fav.nombre}" cargado`);
 }
 
 function previewVideo(url) {
