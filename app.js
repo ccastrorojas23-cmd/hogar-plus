@@ -541,6 +541,7 @@ async function eliminarGasto(id) {
 // INGRESOS
 function abrirFormIngreso(id) {
   const editando = id ? estado.data.ingresos.find(i => i.id === id) : null;
+  const idNum = editando ? editando.id : null;
   abrirModal(`
     <div class="modal-header">
       <p class="modal-titulo">${editando ? 'Editar ingreso' : 'Nuevo ingreso'}</p>
@@ -558,9 +559,9 @@ function abrirFormIngreso(id) {
     <label>FECHA</label>
     <input id="i-fecha" type="date" value="${editando?editando.fecha:hoy()}">
     <div class="modal-actions">
-      ${editando ? `<button class="btn-delete" onclick="eliminarIngreso(${id})">Eliminar</button>` : ''}
+      ${idNum ? `<button class="btn-delete" onclick="eliminarIngreso(${idNum})">Eliminar</button>` : ''}
       <button class="btn-cancel" onclick="cerrarModal()">Cancelar</button>
-      <button class="btn-save" onclick="guardarIngreso(${id||'null'})">${editando?'Guardar':'Crear'}</button>
+      <button class="btn-save" onclick="guardarIngreso(${idNum||'null'})">${editando?'Guardar':'Crear'}</button>
     </div>
   `);
 }
@@ -586,6 +587,11 @@ async function guardarIngreso(id) {
   cerrarModal();
   await cargarDatos();
   renderVista();
+  // Scroll al chip del mes activo
+  setTimeout(() => {
+    const chip = document.querySelector('.mes-chip.activo');
+    if(chip) chip.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
+  }, 100);
   toast(id ? 'Ingreso actualizado' : 'Ingreso creado');
 }
 
@@ -1034,10 +1040,9 @@ function renderMercado() {
     <div class="tabla">
       <div class="tabla-header">
         <span>PRODUCTOS COMPRADOS</span>
-        <span>${productos.length} ${productos.length===1?'producto':'productos'}</span>
+        ${estado.mes !== 'acumulado' ? `<button class="btn-secondary" onclick="abrirFormProducto()">+ Agregar</button>` : `<span>${productos.length} ${productos.length===1?'producto':'productos'}</span>`}
       </div>
       ${tablaHTML}
-      ${estado.mes !== 'acumulado' ? `<div class="tabla-footer"><button class="btn-add-row" onclick="abrirFormProducto()">+ Agregar producto</button></div>` : ''}
     </div>
 
     <div class="tarjeta-total">
