@@ -1,5 +1,5 @@
-// Service Worker v3 - Auto-limpieza
-const CACHE = 'hogar-plus-v3';
+// Service Worker v4 - Auto-limpieza
+const CACHE = 'hogar-plus-v4';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
