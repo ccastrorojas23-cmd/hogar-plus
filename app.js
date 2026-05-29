@@ -15,6 +15,7 @@ const estado = {
   diaSeleccionadoMenu: null,
   pinInput: '',
   pinUsuarioSeleccionado: null,
+  diasMercadoExpandidos: {},
   data: {
     gastos: [], ingresos: [], ahorros: [],
     productos: [], menus: [],
@@ -364,13 +365,10 @@ function renderTabAgenda() {
     <div class="tabla">
       <div class="tabla-header">
         <span>TABLA DE GASTOS</span>
-        <span>${gastos.length} registros</span>
+        <button class="btn-secondary" onclick="abrirFormGasto()">+ Agregar</button>
       </div>
       ${gastos.length === 0 ? '<div class="empty-row">Sin gastos registrados este mes</div>' :
         gastos.map(g => renderFilaGasto(g)).join('')}
-      <div class="tabla-footer">
-        <button class="btn-add-row" onclick="abrirFormGasto()">+ Agregar gasto</button>
-      </div>
     </div>
 
     <div class="card">
@@ -574,15 +572,17 @@ async function guardarIngreso(id) {
   const valor = Number($('i-valor').value) || 0;
   const fecha = $('i-fecha').value;
   if(!nombre || valor <= 0 || !fecha) { toast('Completa todos los campos'); return; }
+  const mesFecha = mesDeFecha(fecha);
   const data = {
     usuario_id: estado.usuario.id,
     tipo, valor, fecha,
     persona: tipo === 'principal' ? nombre : null,
     empresa: tipo === 'extra' ? nombre : null,
-    mes: mesDeFecha(fecha)
+    mes: mesFecha
   };
   if(id) await sb.from('ingresos').update(data).eq('id', id);
   else await sb.from('ingresos').insert(data);
+  estado.mes = mesFecha;
   cerrarModal();
   await cargarDatos();
   renderVista();
@@ -974,23 +974,31 @@ function renderMercado() {
 
   let tablaHTML = '';
   if(estado.mes === 'acumulado') {
-    // Vista acumulada: resumen por mes
     tablaHTML = renderMercadoAcumulado();
   } else if(productos.length === 0) {
     tablaHTML = '<div class="empty-row">Sin productos registrados este mes</div>';
   } else {
+    const fechaHoyStr = hoy();
     fechasOrdenadas.forEach(f => {
       const totalDia = porDia[f].reduce((s,p) => s + Number(p.valor), 0);
       const diaId = `dia-det-${f.replace(/-/g,'')}`;
+      // Por defecto: expandido si es hoy, colapsado si es pasado
+      // Si el usuario ya interactuó, respetar su elección
+      let expandido;
+      if(estado.diasMercadoExpandidos.hasOwnProperty(diaId)) {
+        expandido = estado.diasMercadoExpandidos[diaId];
+      } else {
+        expandido = f >= fechaHoyStr; // hoy y futuro expandidos, pasados colapsados
+      }
       tablaHTML += `
         <div class="dia-header" onclick="toggleDiaMercado('${diaId}')" style="cursor:pointer">
           <span>${formatFechaLarga(f)}</span>
           <span style="display:flex;align-items:center;gap:8px">
             <span>${fmt(totalDia)}</span>
-            <span id="ico-${diaId}" style="font-size:10px;color:#5A8AC0">▲</span>
+            <span id="ico-${diaId}" style="font-size:10px;color:#5A8AC0">${expandido?'▲':'▼'}</span>
           </span>
         </div>
-        <div id="${diaId}">
+        <div id="${diaId}" ${expandido?'':'class="hidden"'}>
           ${porDia[f].map(p => {
             const cat = estado.data.catMercado.find(c => c.id === p.categoria_id);
             const color = cat ? parseColor(cat.color) : null;
@@ -1098,6 +1106,7 @@ function toggleDiaMercado(diaId) {
   const ico = $(`ico-${diaId}`);
   if(!div) return;
   const oculto = div.classList.toggle('hidden');
+  estado.diasMercadoExpandidos[diaId] = !oculto;
   if(ico) ico.textContent = oculto ? '▼' : '▲';
 }
 
@@ -1181,11 +1190,11 @@ function renderMenus() {
     <button class="btn-primary" style="margin-bottom:14px" onclick="abrirFormMenu()">+ Crear comida</button>
     ${todosLosFavoritos.length > 0 ? `
       <div class="card" style="margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <p class="card-titulo" style="margin:0">⭐ MIS FAVORITAS</p>
-          <span style="font-size:11px;color:#5A8AC0">${todosLosFavoritos.length} recetas</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleFavoritasPanel()">
+          <p class="card-titulo" style="margin:0">⭐ MIS FAVORITAS <span style="color:#5A8AC0;font-weight:normal">(${todosLosFavoritos.length})</span></p>
+          <span id="ico-favs" style="font-size:12px;color:#5A8AC0">▼</span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
+        <div id="panel-favs" class="hidden" style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
           ${todosLosFavoritos.map(f => `
             <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#FFFBF2;border:1px solid #F0D4A0;border-radius:8px;cursor:pointer" onclick="abrirFormMenu(${f.id})">
               <span style="font-size:14px">${f.tipo==='desayuno'?'🌅':f.tipo==='almuerzo'?'🌞':'🌙'}</span>
@@ -1204,6 +1213,14 @@ function renderMenus() {
       ${renderPanelDia(menus)}
     </div>
   `;
+}
+
+function toggleFavoritasPanel() {
+  const panel = $('panel-favs');
+  const ico = $('ico-favs');
+  if(!panel) return;
+  const oculto = panel.classList.toggle('hidden');
+  if(ico) ico.textContent = oculto ? '▼' : '▲';
 }
 
 function renderCalendario(menus) {
@@ -1323,8 +1340,11 @@ function abrirFormMenu(id, fechaPredef) {
     </div>
     ${!editando && tienesFavs ? `
       <div style="background:#FAEEDA;border-radius:10px;padding:10px;margin-bottom:14px">
-        <p style="font-size:11px;color:#854F0B;font-weight:500;margin-bottom:8px">⭐ USAR UN FAVORITO</p>
-        <div style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleFavsModal()">
+          <p style="font-size:11px;color:#854F0B;font-weight:500;margin:0">⭐ USAR UN FAVORITO <span style="color:#BA7517;font-weight:normal">(${favoritos.length})</span></p>
+          <span id="ico-favs-modal" style="font-size:11px;color:#854F0B">▼</span>
+        </div>
+        <div id="panel-favs-modal" class="hidden" style="margin-top:8px;display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto">
           ${favoritos.map(f => `
             <button onclick="usarFavorito(${f.id})" style="background:white;border:1px solid #F0D4A0;border-radius:8px;padding:8px 10px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:8px">
               <span style="font-size:13px">${f.tipo==='desayuno'?'🌅':f.tipo==='almuerzo'?'🌞':'🌙'}</span>
@@ -1365,6 +1385,14 @@ function abrirFormMenu(id, fechaPredef) {
   // Vista previa de video al pegar URL
   $('m-video').addEventListener('input', e => previewVideo(e.target.value));
   if(editando && editando.video_url) previewVideo(editando.video_url);
+}
+
+function toggleFavsModal() {
+  const panel = $('panel-favs-modal');
+  const ico = $('ico-favs-modal');
+  if(!panel) return;
+  const oculto = panel.classList.toggle('hidden');
+  if(ico) ico.textContent = oculto ? '▼' : '▲';
 }
 
 function usarFavorito(id) {
