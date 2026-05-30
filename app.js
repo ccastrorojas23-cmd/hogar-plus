@@ -255,7 +255,10 @@ function renderHeader(titulo) {
 // FILTRADO POR MES
 function filtrarPorMes(items) {
   if(estado.mes === 'acumulado') return items;
-  return items.filter(it => it.mes === estado.mes);
+  return items.filter(it => {
+    const mes = it.mes || (it.fecha ? it.fecha.substring(0,7) : null);
+    return mes === estado.mes;
+  });
 }
 
 // MENÚ CONTEXTUAL (mantener pulsado)
@@ -573,7 +576,7 @@ async function guardarIngreso(id) {
   const valor = Number($('i-valor').value) || 0;
   const fecha = $('i-fecha').value;
   if(!nombre || valor <= 0 || !fecha) { toast('Completa todos los campos'); return; }
-  const mesFecha = mesDeFecha(fecha);
+  const mesFecha = fecha.substring(0, 7);
   const data = {
     usuario_id: estado.usuario.id,
     tipo, valor, fecha,
@@ -587,7 +590,6 @@ async function guardarIngreso(id) {
   cerrarModal();
   await cargarDatos();
   renderVista();
-  // Scroll al chip del mes activo
   setTimeout(() => {
     const chip = document.querySelector('.mes-chip.activo');
     if(chip) chip.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
