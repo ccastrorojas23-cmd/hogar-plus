@@ -350,7 +350,7 @@ function renderTabAgenda() {
       <div class="mini-cards">
         ${principales.length === 0 ? '<div style="grid-column:span 2;color:#5A8AC0;font-size:12px;text-align:center;padding:10px">Sin ingresos registrados</div>' : ''}
         ${principales.map(i => `
-          <div class="mini-card">
+          <div class="mini-card" style="cursor:pointer" onclick="editarIngreso(${i.id})">
             <p>${i.persona || 'Ingreso'}</p>
             <p>${fmt(i.valor)}</p>
           </div>
@@ -484,8 +484,7 @@ async function guardarGasto(id) {
     usuario_id: estado.usuario.id,
     concepto, valor, fecha,
     categoria_id: cat_id ? Number(cat_id) : null,
-    mes: mesDeFecha(fecha),
-    meses_recurrencia: mesesRec
+    mes: fecha.substring(0, 7)
   };
   if(id) {
     await sb.from('gastos').update(data).eq('id', id);
@@ -514,12 +513,14 @@ async function guardarGasto(id) {
           concepto, valor,
           fecha: fechaStr,
           categoria_id: cat_id ? Number(cat_id) : null,
-          mes: mesDeFecha(fechaStr),
-          meses_recurrencia: 1,
+          mes: fechaStr.substring(0, 7),
           pagado: false
         });
       }
-      if(inserts.length) await sb.from('gastos').insert(inserts);
+      if(inserts.length) {
+        const { error: errRec } = await sb.from('gastos').insert(inserts);
+        if(errRec) { console.error('Error recurrentes:', errRec); toast('Gasto creado, pero hubo un error al crear copias'); return; }
+      }
     }
   }
   cerrarModal();
@@ -586,14 +587,9 @@ async function guardarIngreso(id) {
   };
   if(id) await sb.from('ingresos').update(data).eq('id', id);
   else await sb.from('ingresos').insert(data);
-  estado.mes = mesFecha;
   cerrarModal();
   await cargarDatos();
-  renderVista();
-  setTimeout(() => {
-    const chip = document.querySelector('.mes-chip.activo');
-    if(chip) chip.scrollIntoView({behavior:'smooth', inline:'center', block:'nearest'});
-  }, 100);
+  cambiarMes(mesFecha);
   toast(id ? 'Ingreso actualizado' : 'Ingreso creado');
 }
 
